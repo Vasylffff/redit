@@ -1,8 +1,6 @@
 param([string]$ProjectRoot = $PSScriptRoot)
 
-$ErrorActionPreference = "Stop"
-if ($PSVersionTable.PSVersion.Major -ge 7) { $PSNativeCommandUseErrorActionPreference = $false }
-Add-Type -AssemblyName PresentationFramework
+$ErrorActionPreference = "Continue"
 
 $root    = (Resolve-Path $ProjectRoot).Path
 $py      = Join-Path $root ".venv\Scripts\python.exe"
@@ -15,9 +13,14 @@ function Run-Step([string]$script, [string[]]$extra = @()) {
     [pscustomobject]@{ Exit = $LASTEXITCODE; Text = ($out | Out-String).Trim() }
 }
 
-function Show-Popup([string]$msg, [bool]$ok) {
-    $img = if ($ok) { [System.Windows.MessageBoxImage]::Information } else { [System.Windows.MessageBoxImage]::Error }
-    [System.Windows.MessageBox]::Show($msg, "REdit Free Collection", "OK", $img) | Out-Null
+function Try-Popup([string]$msg, [bool]$ok) {
+    try {
+        Add-Type -AssemblyName PresentationFramework -ErrorAction Stop
+        $img = if ($ok) { [System.Windows.MessageBoxImage]::Information } else { [System.Windows.MessageBoxImage]::Error }
+        [System.Windows.MessageBox]::Show($msg, "REdit Free Collection", "OK", $img) | Out-Null
+    } catch {
+        # Non-interactive session (Task Scheduler) - skip popup silently
+    }
 }
 
 $mutex   = [System.Threading.Mutex]::new($false, "Global\REditFreeCollectionMutex")
@@ -25,8 +28,8 @@ $hasLock = $false
 try {
     $hasLock = $mutex.WaitOne(0, $false)
     if (-not $hasLock) {
-        "Already running — skipped." | Set-Content $logPath -Encoding UTF8
-        Show-Popup "A free collection run is already active. This run was skipped." $true
+        "Already running - skipped." | Set-Content $logPath -Encoding UTF8
+        Try-Popup "A free collection run is already active. This run was skipped." $true
         exit 0
     }
     if (-not (Test-Path $py)) { throw "Python not found: $py" }
@@ -62,12 +65,13 @@ try {
 
     $summary = ($results.Values | ForEach-Object { $_.Text } | Where-Object { $_ }) -join "`n`n"
     if (-not $summary) { $summary = "Completed without output." }
-    Show-Popup "$(if ($ok) { 'Finished OK' } else { 'Failed' })`n`n$summary`n`nLog: $logPath" $ok
-    exit (if ($ok) { 0 } else { 1 })
+    $exitCode = if ($ok) { 0 } else { 1 }
+    Try-Popup "$(if ($ok) { 'Finished OK' } else { 'Failed' })`n`n$summary`n`nLog: $logPath" $ok
+    exit $exitCode
 }
 catch {
     @("Started: $(Get-Date -Format o)", "Root: $root", "", ($_ | Out-String)) | Set-Content $logPath -Encoding UTF8
-    Show-Popup "Crashed: $($_.Exception.Message)`n`nLog: $logPath" $false
+    Try-Popup "Crashed: $($_.Exception.Message)`n`nLog: $logPath" $false
     exit 1
 }
 finally {

@@ -388,16 +388,6 @@ These write model outputs to `data/models/reddit/classification/`, `regression/`
 
 ---
 
-## Download the data
-
-The collected snapshot data is not included in this repository (files are 100MB–600MB). Download the full `data/` folder from OneDrive:
-
-**[Download data folder](https://qmulprod-my.sharepoint.com/:f:/g/personal/ap25150_qmul_ac_uk/IgCrPEbEU-ShRL7wNRfmOlZcAfQOlu9h5u4LOnrz3c2r_mA?email=v.shcherbatykh%40se25.qmul.ac_uk&e=zONS93)**
-
-After downloading, place the `data/` folder in the root of the cloned repo. Then run `patch_snapshot_gaps.py` and `build_prediction_dataset.py` before using the prediction or detection scripts.
-
----
-
 ## Data files (what is committed vs excluded)
 
 Large runtime files are excluded from git (see `.gitignore`). The repository contains only code, configs, and small summary CSVs.
