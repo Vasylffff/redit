@@ -35,39 +35,11 @@ Vasyl Shcherbatykh<br><br>
 
 <h1>1. Problem Definition &amp; Dataset Justification</h1>
 
-<h2>What This Project Does</h2>
-<p>Every day, thousands of stories appear on Reddit. Some disappear within hours. Others spread across multiple communities, generate thousands of comments, and dominate the platform for days. This project asks: can we predict which stories will grow, how they will spread, and when they will die, using only early engagement signals?</p>
+<p>This project predicts Reddit topic lifecycles at two scales: <strong>post-level</strong> (will this individual post survive?) and <strong>topic-level</strong> (will this emerging story grow?). The system tracks topics from emergence through growth, spread across subreddits, decline, and death. At each stage, a separate ML model predicts what happens next.</p>
 
-<p>The system tracks topics through their complete lifecycle: emergence (a new story appears in 1&ndash;3 posts), growth (it gains momentum), spread (it crosses into new subreddits), decline (engagement drops), and death (the story stops generating new posts). At each stage, a separate machine learning model makes predictions about what will happen next.</p>
+<p>The project applies: binary and multi-class classification (Random Forest, Extra Trees, Gradient Boosting, Logistic Regression, Decision Tree) for survival and state prediction; Markov chain modelling for state transitions; VADER sentiment scoring and Gini coefficient analysis for comment engagement; regression for time-to-death; and co-occurrence pair detection for topic emergence. Five classifiers were compared across seven tasks with 36 hyperparameter configurations.</p>
 
-<h2>The Machine Learning Tasks</h2>
-
-<p>The project applies classification and regression at two scales:</p>
-
-<ul>
-<li><strong>Post survival prediction</strong> &mdash; will an individual post still be alive at 1h, 4h, 12h, 24h, 48h, or 7 days?</li>
-<li><strong>Post state detection</strong> &mdash; is this post surging, dying, or about to change state?</li>
-<li><strong>Post flow modelling</strong> &mdash; Markov chain transition probabilities between lifecycle states</li>
-<li><strong>Time-to-death regression</strong> &mdash; how many hours until a post dies?</li>
-<li><strong>Sentiment and engagement analysis</strong> &mdash; VADER comment scoring and Gini coefficient of comment upvote distribution</li>
-<li><strong>Topic emergence detection</strong> &mdash; will a new word pair grow from 1&ndash;3 posts to 5+?</li>
-<li><strong>Topic lifecycle state prediction</strong> &mdash; what state will a topic be in tomorrow?</li>
-<li><strong>Topic death and revival</strong> &mdash; will a declining topic die permanently or come back?</li>
-<li><strong>Cross-subreddit spread</strong> &mdash; will a topic appear in a new subreddit tomorrow?</li>
-<li><strong>Magnitude prediction (attempted)</strong> &mdash; how large will a topic get? Tested with Szabo-Huberman log-linear models; did not achieve useful accuracy (R&sup2;=0.22)</li>
-</ul>
-
-<p>Five classifiers were compared: Random Forest, Extra Trees, Gradient Boosting, Logistic Regression, and Decision Tree, with 36 hyperparameter configurations tested.</p>
-
-<h2>Why This Problem Matters</h2>
-<p>Understanding how topics emerge and die online has practical applications in several areas. News monitoring systems need to identify which stories are gaining traction before they peak. Content moderators need to anticipate which topics will spread across communities. Researchers studying misinformation need to understand how stories propagate between subreddits and whether spread patterns can be detected early.</p>
-
-<p>From a machine learning perspective, the problem is interesting because it requires prediction at different timescales and granularities. Post-level prediction (will this individual post survive?) works well at short horizons but degrades beyond 24 hours. Topic-level prediction (will this story grow?) follows the opposite pattern: it improves at longer horizons because topics follow momentum while individual posts are chaotic. This inverse relationship between post and topic predictability was one of the project's key discoveries.</p>
-
-<h2>Why This Dataset</h2>
-<p>Five subreddits were chosen to represent different community types: r/politics and r/news (fast-moving political discussion), r/worldnews (international affairs), r/technology (industry news), and r/Games (entertainment). This diversity tests whether the same models generalise across communities with different engagement patterns. For example, r/politics posts have an average lifecycle of 11 hours while r/Games posts survive 49 hours.</p>
-
-<p>The dataset was self-collected rather than using an existing corpus because the project requires repeated observations of the same posts over time. Existing Reddit datasets typically provide single snapshots. Hourly collection over 13 days produced 216,944 post snapshots capturing how each post's engagement changed hour by hour.</p>
+<p>The dataset was self-collected over 13 days (26 March &ndash; 7 April 2026) using Reddit&rsquo;s public JSON endpoints across five subreddits (r/politics, r/news, r/worldnews, r/technology, r/Games), chosen to represent different community types. Self-collection was necessary because existing Reddit datasets provide single snapshots, while this project requires repeated hourly observations of the same posts over time.</p>
 
 <table>
 <tr><th>Metric</th><th>Value</th></tr>
@@ -84,61 +56,28 @@ Vasyl Shcherbatykh<br><br>
 
 <h1>2. Initial Code &amp; Explanation of AI Use</h1>
 
-<h2>The Starting Point</h2>
+<p>The project began on 24 March 2026 with OpenAI Codex. Three data collection approaches were attempted: PRAW (Reddit API credentials not approved), Apify (commercial scraper &mdash; worked but unsuitable for repeated hourly snapshots), and finally Reddit&rsquo;s public JSON endpoints, which I discovered provide post metadata without authentication. This produced collect_reddit_free.py and build_reddit_history.py &mdash; a minimal pipeline that could scrape and merge data but had no tracking pool, no comment analysis, and no prediction models.</p>
 
-<p>The project began on 24 March 2026 with OpenAI Codex. The first task was getting Reddit data. Three approaches were attempted before finding one that worked:</p>
-
-<p><strong>Attempt 1: PRAW (Reddit API).</strong> Codex generated collect_reddit_data.py using the PRAW library, which requires Reddit API credentials. I submitted an API application on 24 March, providing a formal research proposal describing the project's aims. The application was not approved. Without credentials, the PRAW-based collector could not run.</p>
-
-<p><strong>Attempt 2: Apify.</strong> On 26 March, Codex suggested using Apify, a commercial web scraping service with a Reddit actor (trudax/reddit-scraper). This worked technically &mdash; it returned post and comment data &mdash; but the data format was inconsistent and did not provide the repeated hourly snapshots needed for trajectory tracking. I tested it across several subreddits but concluded it was not suitable for the project's requirements.</p>
-
-<p><strong>Attempt 3: Free JSON endpoints.</strong> I discovered that appending .json to any Reddit listing URL (e.g. reddit.com/r/technology/new.json) returns structured post metadata without authentication or rate limiting beyond basic politeness. I asked Claude Code whether this approach was viable for hourly collection and to write the collector. This produced collect_reddit_free.py, which became the sole data collection method for the rest of the project.</p>
-
-<h2>Initial Generated Code</h2>
-
-<p>The first working version was minimal:</p>
-<ul>
-<li><strong>collect_reddit_free.py</strong> &mdash; scrapes Reddit public JSON endpoints for new posts across five subreddits, with 1.1-second rate limiting</li>
-<li><strong>build_reddit_history.py</strong> &mdash; merges all raw JSON snapshots into a unified timeline CSV</li>
-<li>A basic Windows Task Scheduler job to run collection hourly</li>
-</ul>
-
-<p>At this stage there was no tracking pool &mdash; each hourly collection simply fetched whatever posts were currently listed as "new." There was no mechanism to follow the same post over time. If a post happened to appear in consecutive hourly scrapes, it would have multiple snapshots, but this was by luck rather than design. Many posts were observed only once. This created significant uncertainty about what kind of dataset was actually being built and whether it would be sufficient for trajectory prediction.</p>
-
-
-<h2>AI Tools Used</h2>
-
-<p>Two AI tools were used throughout the project. Claude Code (Anthropic, Claude Opus 4.6) was the primary development tool, used for the majority of code generation, data collection infrastructure, comment scraping, analysis, modelling, and the complete topic lifecycle pipeline. OpenAI Codex assisted with initial setup, specific infrastructure tasks, and a major pipeline refactoring on 31 March that separated prediction tracking from live monitoring and redesigned the lifecycle state model. All development was conversational: I directed priorities, questioned results, and pushed exploration when AI suggested premature ceilings.</p>
+<p>Two AI tools were used: OpenAI Codex (24&ndash;31 March, 366 prompts across 2 sessions) for initial setup, data collection pivots, and pipeline refactoring; Claude Code (Anthropic, Claude Opus 4.6, from 1 April onwards, 1,500+ prompts) for analysis, modelling, and the complete topic lifecycle pipeline. All development was conversational: I directed priorities, questioned results, and pushed exploration when AI suggested premature ceilings.</p>
 
 <h1>3. Critique of Initial Code, Iterative Development &amp; Justification</h1>
 
-<p>With the initial code in place, the first priority was making it actually run. From there, each limitation was discovered and addressed in sequence &mdash; from basic bugs through to the complete topic lifecycle system.</p>
-
 <h2>Phase 1: Getting It Running (March 24&ndash;26)</h2>
 
-<p><strong>Iteration 1: Fixing AI-generated bugs.</strong> The initial code generated by AI could not run. datetime.UTC was used across 12 files but requires Python 3.11+ (the machine ran 3.10). f-string backslash syntax caused runtime failures. The Task Scheduler job crashed silently because AI generated WPF popup windows that fail in non-interactive mode. Unicode em dashes in the code corrupted under Windows cp1252 encoding. All of these required manual identification and correction before any data collection could begin.</p>
-
-<p><strong>Iteration 2: Automated hourly collection.</strong> The initial collector only fetched "new" posts, missing rising, hot, and top listings which capture posts at different lifecycle stages. A schedule system was built with five cadences: hourly (new), every 2 hours (rising), every 4 hours (hot), twice daily (top/day), and daily (top/week). Task Scheduler was installed to run collection automatically. Later in the project, a second machine was added and results were merged to fill gaps caused by laptop sleep and commuting.</p>
+<p>The AI-generated code could not run &mdash; six bugs across 12 files including Python 3.10/3.11 incompatibility, Task Scheduler crashes, and encoding corruption. Once fixed, a five-cadence collection schedule was built (hourly to daily) with Task Scheduler on two machines. A tracking pool was then added (Codex session 2) to follow the same posts over time, split into a fixed prediction cohort and rolling live shortlist, with dead posts dropped via a three-tier system (active/dormant/dropped).</p>
 
 <h2>Phase 2: Post-Level Prediction (March 27 &ndash; April 1)</h2>
 
-
-<p><strong>Iteration 3: Tracking pool (Codex session 2).</strong> A pool was added to follow the same posts over time. It was split into a fixed prediction cohort and a rolling live shortlist &mdash; without this, most posts were observed only once, making trajectory prediction unreliable. Dead posts were dropped via a three-tier system: active (hourly), dormant (6-hourly), dropped (archived).</p>
-
-<p><strong>Iteration 4: History building and dead definition.</strong> Raw snapshots were merged into a unified timeline. Gap patching fixed velocity corruption from missed collections &mdash; gaps showed zero velocity even for active posts, faking dead-post signals. The deeper problem was definitional: the initial &ldquo;dead&rdquo; label was too blunt and triggered during collection gaps. This led to the variance collapse method &mdash; a post is dead when its velocity variance drops sharply and stays low, more reliable than a simple threshold. The dying/dead distinction motivated adding &ldquo;dying&rdquo; as a separate early-warning state, so posts are flagged before they fully stop.</p>
+<p><strong>History building and dead definition.</strong> Raw snapshots were merged into a unified timeline. Gap patching fixed velocity corruption from missed collections &mdash; gaps showed zero velocity even for active posts, faking dead-post signals. The deeper problem was definitional: the initial &ldquo;dead&rdquo; label was too blunt. This led to the variance collapse method &mdash; a post is dead when its velocity variance drops sharply and stays low. The dying/dead distinction motivated adding &ldquo;dying&rdquo; as a separate early-warning state.</p>
 
 <img src="data/analysis/reddit/figures/fig_gap_problem.png" style="width:100%; max-width:800px; display:block; margin:15px auto;">
-<p class="caption">Figure: Collection gap problem. Left: velocity drops during a 4-hour gap, creating a false dead signal (348/hr to near-zero). Right: the post gained +1,344 upvotes during the same period.</p>
+<p class="caption">Figure: Collection gap problem. Left: velocity drops during a 4-hour gap, creating a false dead signal. Right: the post gained +1,344 upvotes during the same period.</p>
 
-<p><strong>Iteration 5: Markov chain predictor.</strong> Given a post's current state (surging, alive, cooling, dying, dead), what is the probability of transitioning to each other state next hour? Transition matrices were computed from 116,000 observed transitions, conditioned on subreddit, age, and velocity. A three-level fallback handles sparse data: full key first, then dropping velocity, then global fallback. This was the first working prediction model &mdash; it could project 24 hours forward by chaining hourly transitions. However, Markov chains converge to equilibrium, so predictions beyond ~10 steps became indistinguishable. This motivated adding Random Forest classifiers for specific-horizon prediction, while the Markov predictor was retained for trajectory projection.</p>
+<p><strong>Markov chain predictor.</strong> Transition matrices from 116,000 observed state transitions, conditioned on subreddit, age, and velocity, with a three-level fallback for sparse data. This could project 24 hours forward but Markov chains converge to equilibrium beyond ~10 steps, motivating the addition of Random Forest classifiers.</p>
 
-<p><strong>Iteration 6: Sentiment analysis.</strong> VADER sentiment scoring (Hutto and Gilbert, 2014) was applied to 972,353 comments. The result was counterintuitive: negative comment sentiment correlates with longer post survival (alive posts average &minus;0.006 vs dead posts +0.045), suggesting controversy sustains engagement while apathy accelerates decline. However, the initial sentiment classifier achieved only 74.5%% accuracy, and feature importance analysis revealed comment count alone accounted for 74%% of predictions &mdash; the model had learned to count comments rather than analyse their sentiment, exposing a fundamental feature leakage problem.</p>
+<p><strong>Comment features and sentiment.</strong> VADER sentiment scoring (Hutto and Gilbert, 2014) on 972,353 comments revealed that negative sentiment correlates with longer survival &mdash; controversy sustains engagement. However, the sentiment classifier&rsquo;s 74.5%% accuracy was exposed as feature leakage: comment count alone accounted for 74%% of predictions. The Gini coefficient of comment upvote distribution became the strongest predictor at 46%% feature importance (high Gini = focused discussion = survival), improving accuracy to 77.6%%.</p>
 
-<p><strong>Iteration 7: Comment engagement features (Gini coefficient).</strong> The Gini coefficient measures how comment upvotes are distributed within a post's discussion. High Gini (0.63&ndash;0.72) means a few comments dominate &mdash; community consensus. Low Gini (0.36) means diffuse, unfocused discussion. This became the strongest single post-level predictor at 46%% feature importance, surpassing all velocity and upvote features. Classifier accuracy improved from 74.5%% to 77.6%% with this single feature.</p>
-
-<p><strong>Iteration 8: Per-subreddit models.</strong> The single model trained across all five subreddits achieved 64%% accuracy. Breaking down performance by subreddit revealed that r/politics scored 72%% while r/Games was much lower &mdash; accuracy correlated with both data volume and how structured the community&rsquo;s engagement patterns are. Training separate classifiers per subreddit improved r/politics to 81%%. r/politics posts churn in 11 hours on average; r/Games posts survive 49 hours.</p>
-
-<p><strong>Iteration 9: Survival prediction and multi-horizon extension.</strong> A binary Random Forest classifier was trained to predict whether a post would still be alive one hour later, using velocity, comment count, Gini coefficient, sentiment, and age as features. This achieved 0.843 ROC AUC at 1 hour. The model was then extended to seventeen classifiers covering horizons from 1 hour to 7 days:</p>
+<p><strong>Per-subreddit models and multi-horizon prediction.</strong> Separate classifiers per subreddit improved r/politics from 64%% to 81%%. A binary Random Forest classifier was then extended to seventeen horizons from 1 hour to 7 days:</p>
 
 <div style="display:flex; align-items:center; gap:20px; margin:15px 0;">
 <table style="width:auto; flex-shrink:0;">
@@ -154,13 +93,7 @@ Vasyl Shcherbatykh<br><br>
 </div>
 <p class="caption">Figure: ROC AUC decay across prediction horizons. Performance drops from 0.843 at 1 hour to ~0.57 at 7 days, approaching random chance.</p>
 
-<p>At 7 days, accuracy paradoxically rises to 85%% while ROC drops to 0.57 &mdash; predicting "everything dies" achieves high accuracy but zero discriminative power. This demonstrates why ROC AUC is more appropriate than accuracy for imbalanced classification.</p>
-
-<p><strong>Iteration 10: Surging and dead detection.</strong> Specialised binary classifiers for specific states achieved the project's strongest post-level results: surging detection at 0.987 ROC AUC and dead detection at 0.945. State rise prediction achieved 0.947 ROC and barely decayed to 0.926 at 24 hours. Rise is more predictable than fall because it requires detectable signals; falling is the absence of signal.</p>
-
-<p><strong>Iteration 11: Post outcome and time-to-death.</strong> predict_post_outcome.py combined empirical growth multipliers per subreddit with state transition matrices from 116,000 observed transitions to produce pop/flop probabilities with estimated peak upvote range. predict_time_to_death.py achieved R&sup2;=0.459 with MAE of 9.1 hours. The top feature was states_seen_count (30%%) &mdash; posts that had been through more state transitions were more predictable.</p>
-
-<p><strong>Iteration 12: Cross-subreddit success prediction.</strong> 1,305 detected cross-posts were analysed using title similarity matching. The politics&rarr;news route had 72%% success rate. worldnews broke stories first 516 times. Median propagation time: 11.1 hours.</p>
+<p>At 7 days, accuracy paradoxically rises to 85%% while ROC drops to 0.57 &mdash; predicting &ldquo;everything dies&rdquo; achieves high accuracy but zero discriminative power, demonstrating why ROC AUC is essential for imbalanced classification. Specialised state classifiers achieved the strongest results: surging detection at 0.987 ROC, dead detection at 0.945, and state rise at 0.947. Time-to-death regression achieved R&sup2;=0.459 (MAE 9.1 hours). Cross-subreddit analysis of 1,305 detected cross-posts showed r/worldnews breaks stories first and the politics&rarr;news route had 72%% success rate.</p>
 
 
 <h2>Phase 3: Topic Lifecycle Prediction (April 7&ndash;8)</h2>
