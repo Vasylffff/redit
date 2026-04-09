@@ -18,7 +18,7 @@ try:
 except ImportError:
     _VADER = None
 
-PROJECT = os.path.dirname(os.path.abspath(__file__))
+PROJECT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(PROJECT, "data", "history", "reddit", "history.db")
 OUT_DIR = os.path.join(PROJECT, "data", "analysis")
 os.makedirs(OUT_DIR, exist_ok=True)
