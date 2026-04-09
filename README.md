@@ -1,55 +1,142 @@
-# REdit — Reddit Flow Intelligence
+# REdit — Reddit Topic Lifecycle Prediction
 
-A data collection, modelling, and prediction system built on top of the Reddit API. Tracks how posts live and die across subreddits, builds Markov chain transition models of post flow, detects news events through statistical deviation, and manages smart tracking pools that stop wasting requests on dead posts.
+Predicts how topics emerge, spread, and die on Reddit using only engagement signals. Tracks 6,826 posts across 5 subreddits over 13 days, applies classification at every lifecycle stage, and achieves 0.86–0.99 ROC AUC depending on the task.
 
----
-
-## What this project does
-
-Reddit posts follow predictable trajectories: they surge, cool, die. But *how* they do it depends on the topic, the subreddit, the time of day, and what is happening in the real world. This project:
-
-1. **Collects** hourly snapshots of Reddit posts across multiple subreddits and listing types
-2. **Builds** a merged history of every post's velocity, state, and engagement over time
-3. **Patches** collection gaps so that a missed hourly window doesn't corrupt velocity calculations
-4. **Models** post-state transitions as Markov chains, conditioned on topic, subreddit, age, and current velocity
-5. **Predicts** how a post will evolve over the next 24 hours — with optional real-observation anchoring
-6. **Detects** when a topic is deviating from its historical baseline (= something is happening in the news)
-7. **Manages** smart tracking pools that prioritise live posts and drop confirmed-dead ones
+**Module:** Exploring AI: Understanding and Applications (SPC4004), Queen Mary University of London  
+**Assessment 2:** Code Generation Project
 
 ---
 
-## Architecture overview
+## What it does
+
+The system operates at two levels:
+
+**Post-level** — predicts individual post trajectories:
+- Will this post surge, survive, or die? (0.987 ROC for surging detection)
+- How long will it last? (0.843 ROC at 1h, decaying to 0.57 at 7 days)
+- What drives survival? (Gini coefficient of comment upvotes = strongest feature at 46%)
+
+**Topic-level** — tracks word pairs ("russian+tanker", "crimson+desert") through their complete lifecycle:
+
+| Stage | Question | ROC AUC |
+|-------|----------|---------|
+| Filter | Is this noise? (discards 87% of pairs) | 0.850 |
+| Birth | Will it grow from 1–3 to 5+ posts? | 0.860 |
+| Growth | Has it peaked or still growing? | 0.958 |
+| Spread | Will it reach r/politics tomorrow? | 0.756 |
+| Decline | Is it dying? | 0.992 |
+| Death | Will it die tomorrow? | 0.890 |
+| Death speed | Quick death or slow death? | 0.996 |
+| Revival | Ongoing story or one-shot event? | 0.970 |
+
+The system is content-agnostic — the same algorithm catches political scandals, game launches, and viral memes using identical engagement features.
+
+---
+
+## Project structure
 
 ```
-Reddit API
-    |
-    v
-collect_reddit_data.py          -- pulls raw posts + comments per subreddit
-run_free_collection_schedule.py -- runs only the manifests due this hour
-    |
-    v
-build_reddit_history.py         -- merges all raw runs into post_snapshots.csv
-    |
-    v
-patch_snapshot_gaps.py          -- fixes velocity corruption from missed windows
-    |
-    v
-build_prediction_dataset.py     -- labels each snapshot with next-hour outcome
-    |
-    v
-predict_post_flow.py            -- 5-layer Markov predictor
-detect_flow_deviation.py        -- news-pulse / deviation detector
-build_tracking_pools.py         -- variance-collapse-based dead-post manager
+REdit/
+├── collection/          Data scrapers and scheduling
+│   ├── collect_reddit_free.py      Free Reddit JSON endpoint scraper
+│   ├── collect_reddit_data.py      PRAW-based scraper (unused, API not approved)
+│   ├── normalize_reddit_json.py    Normalise raw JSON into tables
+│   └── run_free_collection_schedule.py  Hourly scheduler
+│
+├── pipeline/            Data processing and feature engineering
+│   ├── build_reddit_history.py     Merge snapshots into unified timeline
+│   ├── patch_snapshot_gaps.py      Fix velocity corruption from missed hours
+│   ├── build_prediction_dataset.py ML feature labels
+│   ├── build_tracking_pools.py     Smart post tracking (active/dormant/dropped)
+│   ├── build_free_tracking_pool.py Tracking pool for free collection
+│   ├── build_naive_forecast.py     Baseline Markov forecaster
+│   ├── evaluate_naive_forecast.py  Forecast evaluation
+│   ├── build_subreddit_health.py   Subreddit health scoring
+│   ├── export_history_to_sqlite.py SQLite database export
+│   ├── validate_history_data.py    Data integrity checks
+│   └── ...
+│
+├── prediction/          ML models
+│   ├── predict_post_flow.py        5-layer Markov chain predictor
+│   ├── predict_post_outcome.py     Pop or flop prediction
+│   ├── predict_time_to_death.py    Hours until post dies
+│   ├── predict_mood.py             Sentiment trajectory prediction
+│   ├── predict_emerging_keywords.py Keyword emergence detection
+│   ├── predict_topic_popularity.py  Topic growth regression
+│   ├── predict_subreddit_direction.py Subreddit trend prediction
+│   ├── predict_crosspost_success.py Cross-post success probability
+│   ├── train_next_hour_*.py        4 model variants (RF, SGD, regression, trees)
+│   └── ...
+│
+├── analysis/            Data analysis scripts
+│   ├── analyze_sentiment.py        VADER + K-means on comments
+│   ├── analyze_comment_engagement.py Gini coefficient analysis
+│   ├── analyze_cross_subreddit.py  Topic spread patterns
+│   ├── analyze_keyword_signal.py   Keyword emergence signals
+│   ├── analyze_velocity_curves.py  Engagement acceleration
+│   ├── analyze_post_timing.py      Optimal posting hours
+│   └── ...
+│
+├── tests/               Validation and experiments
+│   ├── test_temporal_pairs.py      Co-occurrence pair emergence detection
+│   ├── test_topic_lifecycle.py     Topic state prediction
+│   ├── test_subreddit_spread.py    Cross-subreddit spread prediction
+│   ├── test_topic_dying.py         Topic death detection
+│   ├── test_revival_type.py        Ongoing vs one-shot classification
+│   ├── test_false_death.py         False death analysis
+│   ├── test_model_comparison.py    5 classifiers x 7 tasks
+│   ├── test_hyperparameter_search.py 36 config tuning
+│   ├── test_virality_models.py     Szabo-Huberman and log-linear models
+│   └── ...
+│
+├── reporting/           Report and figure generation
+│   ├── build_report_html.py        Live HTML report preview
+│   ├── build_final_report_docx.py  Word document builder
+│   ├── build_assessment_figures.py Figure generation
+│   ├── build_visual_report.py      Dashboard visuals
+│   └── ...
+│
+├── reports/             All report versions (markdown + docx)
+├── docs/                Documentation
+│   ├── scraping_evolution.md       How collection evolved (4 versions)
+│   ├── codex_handover_summary.md   Pipeline refactoring handover
+│   └── session_history_reconstruction.md  Full development timeline
+├── configs/             Schedule and batch configurations
+├── data/                Collected data, models, figures
+│
+├── run_full_analysis.py            One-click: generate all 16 figures
+├── report_preview.html             Live report preview (open in browser)
+├── requirements.txt
+└── *.ps1                           Windows Task Scheduler automation
 ```
+
+---
+
+## Dataset
+
+Self-collected over 13 days (26 March – 7 April 2026) using Reddit's free public JSON endpoints. No API key required.
+
+| Metric | Value |
+|--------|-------|
+| Post snapshots | 216,944 |
+| Comment snapshots | 972,353 |
+| Unique posts | 6,826 |
+| Subreddits | r/technology, r/news, r/worldnews, r/politics, r/Games |
+| Collection | Hourly via Windows Task Scheduler (2 machines) |
+| Raw files | 5,140 JSON files |
+
+The full `data/` folder is not in git (files are 100MB–600MB). Download from OneDrive:
+
+**[Download data folder](https://qmulprod-my.sharepoint.com/:f:/g/personal/ap25150_qmul_ac_uk/IgCrPEbEU-ShRL7wNRfmOlZcAfQOlu9h5u4LOnrz3c2r_mA?email=v.shcherbatykh%40se25.qmul.ac_uk&e=zONS93)**
 
 ---
 
 ## Setup
 
-### 1. Create a virtual environment
+### 1. Create virtual environment
 
 ```powershell
-C:\Users\Basyl\miniforge3\python.exe -m venv .venv
+python -m venv .venv
 ```
 
 ### 2. Install dependencies
@@ -58,383 +145,91 @@ C:\Users\Basyl\miniforge3\python.exe -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-### 3. Create your `.env` file
+### 3. Run collection (optional — data is available via OneDrive)
 
 ```powershell
-Copy-Item .env.example .env
+.\.venv\Scripts\python.exe collection/run_free_collection_schedule.py
 ```
 
-Fill in:
-- `REDDIT_CLIENT_ID`
-- `REDDIT_CLIENT_SECRET`
-- `REDDIT_USER_AGENT`
+### 4. Run full analysis pipeline
 
-Get these from [https://www.reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) — create a "script" app.
+```powershell
+.\.venv\Scripts\python.exe pipeline/build_reddit_history.py
+.\.venv\Scripts\python.exe pipeline/patch_snapshot_gaps.py
+.\.venv\Scripts\python.exe pipeline/build_prediction_dataset.py
+.\.venv\Scripts\python.exe pipeline/export_history_to_sqlite.py
+```
+
+### 5. Generate all figures
+
+```powershell
+.\.venv\Scripts\python.exe run_full_analysis.py
+```
+
+Produces 16 figures in `data/analysis/reddit/figures/`.
 
 ---
 
-## Data collection
+## Key findings
 
-### Run a one-off collection
+1. **Content-agnostic detection works.** The same algorithm catches political crises, game launches, and viral memes — it tracks word pairs spreading, not content meaning.
 
-```powershell
-.\.venv\Scripts\python.exe collect_reddit_data.py wallstreetbets stocks investing --post-limit 100 --comment-limit-per-post 20
-```
+2. **Posts and topics follow opposite predictability patterns.** Post prediction decays from 0.843 ROC (1h) to 0.57 (7d). Topic prediction improves at longer horizons because topics follow momentum.
 
-Writes timestamped raw data to `data/raw/20260324_141500/`.
+3. **Controversy drives survival.** Negative comment sentiment correlates with longer post survival. r/politics (most negative) is growing; r/Games (most positive) is declining.
 
-### Run the scheduled queue (recommended)
+4. **Gini coefficient is the strongest post predictor.** Comment upvote concentration (46% feature importance) outperforms all velocity and upvote features.
 
-```powershell
-.\.venv\Scripts\python.exe run_free_collection_schedule.py
-```
+5. **Topic death needs 2+ days to confirm.** One-day definition has 13.1% false-death rate. Bigger topics revive more often (44.8% for 8–11 peak posts).
 
-Only runs the manifests due for the current hour:
+6. **Logistic Regression beats Random Forest** on the core emergence detection task (0.860 vs 0.829), indicating the signal is linear.
 
-| Schedule | Cadence | Listing |
-|---|---|---|
-| `hourly_new.csv` | every hour | new |
-| `two_hour_rising.csv` | every 2 hours | rising |
-| `four_hour_hot.csv` | every 4 hours | hot |
-| `twice_daily_top_day.csv` | twice a day | top/day |
-| `daily_top_week.csv` | once a day | top/week |
+7. **Magnitude is unpredictable.** Detection works (0.86 ROC) but predicting HOW viral a topic will become fails (R²=0.22). Tested Szabo-Huberman log-linear models — confirmed by established research.
 
-Dry-run preview (no network):
-
-```powershell
-.\.venv\Scripts\python.exe run_free_collection_schedule.py --hour 14 --dry-run
-```
-
-### Install Windows Task Scheduler job
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\install_collection_schedule_task.ps1
-```
-
-This creates `REdit Hourly Collection` — runs the collection, rebuilds history, rebuilds predictions, validates data, and exports to SQLite. Shows a popup summary each run.
+8. **Revival is driven by external events.** Predicting WHEN a topic revives: 0.578 ROC (random). Predicting WHICH topics are the type that revives: 0.970 ROC. Multiple previous peaks is the strongest signal (15.5x ratio).
 
 ---
 
-## Building the history
+## Collection evolution
 
-```powershell
-.\.venv\Scripts\python.exe build_reddit_history.py
-```
+The scraping system went through 4 major versions — see [docs/scraping_evolution.md](docs/scraping_evolution.md):
 
-Merges all raw collection runs into:
-- `data/history/reddit/post_snapshots.csv` — one row per post per snapshot
-- `data/history/reddit/subreddit_snapshots.csv` — subreddit-level aggregates
-- `data/history/reddit/activity_thresholds.csv` — empirical alive/surging/dead velocity cutoffs per subreddit
-- `data/history/reddit/analysis_focus_latest.csv` — currently surging/alive posts
-- `data/history/reddit/tracking_candidates_latest.csv` — per-subreddit priority watchlist
-
-Each snapshot row carries:
-- `upvotes_at_snapshot`, `comments_at_snapshot`
-- `upvote_velocity_per_hour`, `comment_velocity_per_hour`
-- `upvote_delta_from_previous_snapshot`
-- `hours_since_previous_snapshot`
-- `activity_state` — one of `surging / alive / cooling / dying / dead`
-- `age_hours_at_snapshot`
-- `listing_type` — which schedule captured this snapshot
+1. **PRAW** — Reddit API application not approved
+2. **Apify** — tested, abandoned (cost, inconsistent data)
+3. **Free JSON, no tracking** — posts observed by luck, not design
+4. **Free JSON, multi-cadence + tracking** — 5 listing types, fixed observation cohorts, gap patching, two-machine merge
 
 ---
 
-## Patching collection gaps
+## AI tools used
 
-**Run this every time after `build_reddit_history.py`, before any modelling scripts.**
+- **Claude Code** (Anthropic, Claude Opus 4.6) — primary tool for code generation, analysis, modelling, and topic lifecycle pipeline
+- **OpenAI Codex** — initial setup, infrastructure, pipeline refactoring
 
-```powershell
-.\.venv\Scripts\python.exe patch_snapshot_gaps.py
-```
-
-### Why gaps corrupt velocity
-
-When the collector misses a window (laptop offline, subway, sleep), the next snapshot shows `velocity = 0` even though the post was actively gaining upvotes during the gap. This fakes a dead-post signal, corrupts Markov transitions, and triggers false variance collapse.
-
-### What the patcher does
-
-| Gap size | Action |
-|---|---|
-| `< 3 hours` | If velocity = 0 but upvotes > 20 and delta > 0: recalculate velocity from `delta / gap_hours`. Flag `velocity_interpolated = 1`. |
-| `>= 3 hours` | Flag `is_collection_gap = 1`. Recalculate velocity from delta / gap anyway (magnitude is better than zero). |
-| Zero delta, same upvotes | This is Reddit upvote fuzzing — real zero activity. Flag `is_reddit_fuzzing = 1`, keep velocity = 0 (it's correct). |
-
-Adds three new columns to `post_snapshots.csv`:
-- `is_collection_gap` — 1 if the gap before this snapshot was 3h+
-- `velocity_interpolated` — 1 if velocity was recalculated
-- `is_reddit_fuzzing` — 1 if zero velocity is a genuine zero (Reddit showing same upvote count twice)
-
-Backs up the original to `post_snapshots_pre_patch.csv` before overwriting.
+All development was conversational. See [docs/session_history_reconstruction.md](docs/session_history_reconstruction.md) for the complete development timeline.
 
 ---
 
-## Build prediction tables
+## Model comparison
 
-```powershell
-.\.venv\Scripts\python.exe build_prediction_dataset.py
-```
+Five classifiers tested across seven tasks with 36 hyperparameter configurations:
 
-Writes:
-- `data/models/reddit/prediction_next_hour.csv` — rows with next-snapshot state labels
-- `data/models/reddit/prediction_all_snapshots.csv` — full snapshot-to-snapshot table
-- `data/models/reddit/prediction_sequences.csv` — ordered trajectories per post
+| Task | Random Forest | Extra Trees | Grad. Boost | Logistic Reg. | Decision Tree |
+|------|--------------|-------------|-------------|---------------|---------------|
+| Emergence | 0.829 | 0.808 | 0.680 | **0.851** | 0.560 |
+| Escalation | 0.708 | **0.736** | 0.565 | 0.712 | 0.510 |
+| Failure filter | 0.829 | 0.808 | 0.760 | **0.850** | 0.560 |
+| Death tomorrow | **0.886** | 0.869 | 0.874 | 0.787 | 0.864 |
+| Peaked/growing | 0.731 | 0.657 | **0.734** | 0.581 | 0.658 |
+| Quick/slow death | 0.995 | 0.996 | 0.996 | **0.999** | 0.973 |
+| Subreddit spread | **0.659** | 0.644 | 0.619 | 0.636 | 0.606 |
 
----
-
-## Predicting post flow
-
-```powershell
-.\.venv\Scripts\python.exe predict_post_flow.py --topic war_geopolitics --subreddit worldnews
-```
-
-### How it works — 5 layers
-
-#### Layer 1: Markov chain baseline
-
-Builds transition matrices `P(next_state | current_state, topic, subreddit, age_bucket, velocity_bucket)` from historical data.
-
-Velocity is bucketed:
-- `low` — below the subreddit's alive threshold
-- `med` — alive threshold up to surging threshold
-- `high` — above surging threshold
-
-Three-level fallback for sparse data:
-1. Full key: `(state, age_bucket, velocity_bucket)` — needs 10+ observations
-2. Drop velocity bucket: `(state, age_bucket)` — needs 10+ observations
-3. Global fallback: `(state, age_bucket)` across all subreddits
-
-#### Layer 2: Live heat
-
-Compares current surge+alive rate for this topic/subreddit against its 7-day historical baseline (excluding the last 3 hours, so the baseline is never contaminated by the current window).
-
-- Heat ratio > 1.5 → shift initial distribution toward surging
-- Heat ratio < 0.7 → shift toward cooling/dead
-
-#### Layer 3: Scenario
-
-Optional user-defined event assumption. Applied as a multiplier to the surge/alive probability in the initial distribution.
-
-| Scenario | Multiplier | Use case |
-|---|---|---|
-| `quiet` | x0.4 | Holiday, slow news day |
-| `normal` | x1.0 | Default — no event assumption |
-| `moderate` | x2.0 | Press conference, notable tweet |
-| `major` | x4.0 | Election result, resignation, war development |
-| `breaking` | x7.0 | Historic / once-in-a-decade event |
-
-#### Layer 4: Anchor (2-hour real observation)
-
-After 2 hours of real observation, replace the historical initial distribution with what you've actually seen. Provide:
-- `--anchor-state` — the state right now
-- `--anchor-upvotes` — upvote count at 2h
-- `--anchor-cv` — comment velocity right now
-
-The anchor's velocity performance (actual vs expected) shifts the velocity bucket used for projections.
-
-#### Layer 5: Discussion quality
-
-Scores the discussion 0–100 from:
-- `question_share` — fraction of comments that are questions (engagement signal)
-- `avg_comment_upvotes` — community is upvoting the discussion
-- `unique_commenters` — breadth of participation
-- `post_body_length` — substantial OP encourages better replies
-
-Adjusted by anchor comment velocity ratio when anchor data is present.
-
-### Usage examples
-
-```powershell
-# Basic prediction
-.\.venv\Scripts\python.exe predict_post_flow.py --topic war_geopolitics --subreddit worldnews
-
-# With scenario assumption
-.\.venv\Scripts\python.exe predict_post_flow.py --topic politics_government --subreddit politics --scenario major
-
-# With 2-hour real observation
-.\.venv\Scripts\python.exe predict_post_flow.py --topic ai_software --subreddit technology --anchor-state alive --anchor-upvotes 340 --anchor-cv 8
-
-# List all available topics
-.\.venv\Scripts\python.exe predict_post_flow.py --list-topics
-
-# Run all topic/subreddit combinations
-.\.venv\Scripts\python.exe predict_post_flow.py --all
-```
+No single model dominates. Hyperparameter tuning improved Decision Tree by +0.265 and Gradient Boosting by +0.122.
 
 ---
 
-## News-pulse deviation detector
+## References
 
-```powershell
-.\.venv\Scripts\python.exe detect_flow_deviation.py
-```
-
-Compares the *current* surge/alive/dead rate for each topic+subreddit against the 7-day historical baseline. Flags when something unusual is happening.
-
-### Deviation types
-
-| Signal | Meaning |
-|---|---|
-| `SURGE SPIKE` | Surge rate is 2x+ the baseline — unusual volume of activity |
-| `elevated activity` | Surge rate 1.4x+ baseline |
-| `unusually quiet` | Active rate well below baseline — topic has gone cold |
-| `mass die-off` | Dead rate 2x+ baseline — posts dying unusually fast |
-| `normal` | Within expected range |
-
-### Cross-subreddit signals
-
-The same topic deviating in the same direction across 2+ subreddits simultaneously is a much stronger signal than a single subreddit. Shown separately as `MULTI-SUB SURGE` or `MULTI-SUB QUIET`.
-
-### History log
-
-Every run appends to `data/history/reddit/deviation_log.csv` — build up a record of when topics were deviating and by how much. Useful for correlating with actual news events.
-
-### Options
-
-```powershell
-# Filter to one topic
-.\.venv\Scripts\python.exe detect_flow_deviation.py --topic war_geopolitics
-
-# Adjust detection threshold (default 1.4)
-.\.venv\Scripts\python.exe detect_flow_deviation.py --threshold 1.6
-
-# Adjust current window (default 3 hours)
-.\.venv\Scripts\python.exe detect_flow_deviation.py --hours 6
-```
-
----
-
-## Smart tracking pools
-
-```powershell
-.\.venv\Scripts\python.exe build_tracking_pools.py
-```
-
-Splits all tracked posts into three pools so the collector stops wasting requests on dead posts.
-
-### The pools
-
-| Pool | Check frequency | Condition |
-|---|---|---|
-| `active_pool.csv` | every hour | Variance has not collapsed, or revival signal detected |
-| `dormant_pool.csv` | every 6 hours | Variance collapsed but post is young (<24h) — watch for revival |
-| `dropped_pool.csv` | stop tracking | Variance collapsed + confirmed dead + age 24h+ |
-
-### Variance collapse detection
-
-A post is *dead* when its velocity variance collapses — the chaotic high-variance alive phase ends and velocity locks into a smooth low decline. This is more reliable than a velocity threshold alone, which gets triggered by collection gaps.
-
-Detection criteria:
-- `std_before > 15` — post was genuinely volatile before this point
-- `std_after < 8` — variance has locked down after this point
-- `mean_after < 40` — the after-window isn't flat-high
-- `is_declining` — the after-window is actually declining, not plateauing
-
-Collection gap zeros are stripped from the velocity sequence before analysis (a zero surrounded by high values is a gap artefact, not real zero activity).
-
-### Confirmed dead check
-
-Requires *all* of the last 3 snapshots to show:
-- upvote velocity <= 5/hr
-- comment velocity <= 0.5/hr
-- at least 2 of 3 snapshots in `dead` or `dying` state
-
-### Revival signal
-
-Requires 2 of the last 3 snapshots (not just 1, to avoid gap artefacts) to show velocity > 20/hr, or sustained comment velocity, or appearance in the `rising` listing. Posts showing revival signal are moved back to `active_pool`.
-
----
-
-## Recommended pipeline order
-
-Run these in sequence after each collection cycle:
-
-```powershell
-.\.venv\Scripts\python.exe build_reddit_history.py
-.\.venv\Scripts\python.exe patch_snapshot_gaps.py
-.\.venv\Scripts\python.exe build_prediction_dataset.py
-.\.venv\Scripts\python.exe build_tracking_pools.py
-.\.venv\Scripts\python.exe detect_flow_deviation.py
-```
-
-The Windows Task Scheduler popup wrapper (`run_collection_schedule_window.ps1`) runs the first three automatically after each collection. Run the last two manually when you want analysis.
-
----
-
-## Training models
-
-Several training scripts are included but are secondary to the Markov approach:
-
-```powershell
-.\.venv\Scripts\python.exe train_next_hour_classification.py   # Random Forest classifier
-.\.venv\Scripts\python.exe train_next_hour_regression.py       # Linear regression on velocity
-.\.venv\Scripts\python.exe train_next_hour_gradient_descent.py # SGD
-.\.venv\Scripts\python.exe train_next_hour_trees.py            # Gradient boosted trees
-.\.venv\Scripts\python.exe evaluate_naive_forecast.py          # Naive (same-as-now) baseline
-```
-
-These write model outputs to `data/models/reddit/classification/`, `regression/`, etc.
-
----
-
-## Validate and export
-
-```powershell
-# Run data quality checks
-.\.venv\Scripts\python.exe validate_history_data.py
-
-# Export to SQLite for easier querying
-.\.venv\Scripts\python.exe export_history_to_sqlite.py
-```
-
----
-
-## Data files (what is committed vs excluded)
-
-Large runtime files are excluded from git (see `.gitignore`). The repository contains only code, configs, and small summary CSVs.
-
-| File | Size | In git |
-|---|---|---|
-| `data/history/reddit/post_snapshots.csv` | ~110 MB | No — too large |
-| `data/history/reddit/history.db` | ~600 MB | No — regenerable |
-| `data/models/reddit/prediction_next_hour.csv` | ~110 MB | No — regenerable |
-| `configs/schedules/*.csv` | KB | Yes |
-| `data/history/reddit/activity_thresholds.csv` | KB | Yes |
-| `data/history/reddit/deviation_log.csv` | KB | Yes |
-
-To rebuild everything from scratch after cloning:
-1. Run the collection schedule for a few hours
-2. Run `build_reddit_history.py`
-3. Run `patch_snapshot_gaps.py`
-4. Run `build_prediction_dataset.py`
-
----
-
-## Key concepts
-
-**Activity states** — assigned per-snapshot based on upvote velocity relative to subreddit thresholds:
-- `surging` — velocity above surging threshold
-- `alive` — velocity above alive threshold
-- `cooling` — velocity positive but declining
-- `dying` — velocity near zero, comments slowing
-- `dead` — effectively no new engagement
-
-**Velocity buckets** — three tiers used for Markov conditioning:
-- `low` — below alive threshold
-- `med` — alive to surging
-- `high` — above surging threshold
-
-**Collection gap** — a snapshot where the previous window was missed. `is_collection_gap = 1`. Velocity is recalculated from the upvote delta divided by the actual gap length.
-
-**Reddit fuzzing** — Reddit occasionally shows the same upvote count in consecutive snapshots even when a post is getting upvotes (anti-scraping obfuscation). `is_reddit_fuzzing = 1` means velocity = 0 is correct, not a gap.
-
-**Variance collapse** — the point in a post's lifecycle where velocity variance drops sharply and stays low. Indicates the post has locked into its decay trajectory and is effectively dead for new engagement.
-
----
-
-## Notes
-
-- Keep your `.env` file private. It is git-ignored by default.
-- The `--dry-run` flag works on all collection scripts.
-- All scripts use the project `.venv` interpreter: `.\.venv\Scripts\python.exe <script>.py`
-- The Markov predictor needs at least a few weeks of history data to make good predictions. Accuracy improves with volume.
-- Subreddits with low post volume (e.g. `games` ~289 posts) will fall back to global transition matrices more often than high-volume ones (e.g. `politics` ~1,400 posts).
+- Hutto, C.J. and Gilbert, E.E. (2014) 'VADER: A Parsimonious Rule-based Model for Sentiment Analysis of Social Media Text', *Proc. ICWSM*.
+- Pedregosa, F. et al. (2011) 'Scikit-learn: Machine Learning in Python', *JMLR*, 12, pp. 2825-2830.
+- Szabo, G. and Huberman, B.A. (2010) 'Predicting the Popularity of Online Content', *Communications of the ACM*, 53(8), pp. 80-88.
